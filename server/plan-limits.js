@@ -47,7 +47,7 @@ async function checkMonitorLimit(userID) {
         return;
     }
 
-    const count = await R.count("monitor", " user_id = ? ", [userID]);
+    const count = await R.count("monitor", " user_id = ? ", [ userID ]);
     if (count >= limits.maxMonitors) {
         throw new Error(
             `Monitor limit reached (${limits.maxMonitors} monitors on ${limits.plan || "your"} plan). Please upgrade your plan to add more monitors.`

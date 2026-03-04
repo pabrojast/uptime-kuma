@@ -1208,7 +1208,7 @@ let needSetup = false;
                 checkLogin(socket);
                 const { getPlanLimits } = require("./plan-limits");
                 const limits = getPlanLimits();
-                const monitorCount = await R.count("monitor", " user_id = ? ", [socket.userID]);
+                const monitorCount = await R.count("monitor", " user_id = ? ", [ socket.userID ]);
                 callback({
                     ok: true,
                     data: limits ? {
