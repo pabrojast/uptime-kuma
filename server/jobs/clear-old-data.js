@@ -1,6 +1,7 @@
 const { R } = require("redbean-node");
 const { log } = require("../../src/util");
 const { setSetting, setting } = require("../util-server");
+const { getPlanLimits } = require("../plan-limits");
 
 const DEFAULT_KEEP_PERIOD = 180;
 
@@ -11,6 +12,13 @@ const DEFAULT_KEEP_PERIOD = 180;
 
 const clearOldData = async () => {
     let period = await setting("keepDataPeriodDays");
+
+    // PingIsUp: Override with plan-based history limit
+    const planLimits = getPlanLimits();
+    if (planLimits && planLimits.historyDays) {
+        period = planLimits.historyDays;
+        await setSetting("keepDataPeriodDays", period, "general");
+    }
 
     // Set Default Period
     if (period == null) {

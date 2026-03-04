@@ -94,7 +94,7 @@ const Monitor = require("./model/monitor");
 const User = require("./model/user");
 
 log.debug("server", "Importing Settings");
-const { getSettings, setSettings, setting, initJWTSecret, checkLogin, startUnitTest, doubleCheckPassword, startE2eTests, shake256, SHAKE256_LENGTH
+const { getSettings, setSettings, setSetting, setting, initJWTSecret, checkLogin, startUnitTest, doubleCheckPassword, startE2eTests, shake256, SHAKE256_LENGTH
 } = require("./util-server");
 
 log.debug("server", "Importing Notification");
@@ -110,6 +110,7 @@ const Database = require("./database");
 log.debug("server", "Importing Background Jobs");
 const { initBackgroundJobs, stopBackgroundJobs } = require("./jobs");
 const { loginRateLimiter, twoFaRateLimiter } = require("./rate-limiter");
+const { checkMonitorLimit, enforceInterval, logPlanLimits } = require("./plan-limits");
 
 const { apiAuth } = require("./auth");
 const { login } = require("./auth");
@@ -643,6 +644,13 @@ let needSetup = false;
         socket.on("add", async (monitor, callback) => {
             try {
                 checkLogin(socket);
+
+                // PingIsUp: Check monitor count limit
+                await checkMonitorLimit(socket.userID);
+
+                // PingIsUp: Enforce minimum interval
+                monitor = enforceInterval(monitor);
+
                 let bean = R.dispense("monitor");
 
                 let notificationIDList = monitor.notificationIDList;
@@ -697,6 +705,9 @@ let needSetup = false;
             try {
                 let removeGroupChildren = false;
                 checkLogin(socket);
+
+                // PingIsUp: Enforce minimum interval on edit
+                monitor = enforceInterval(monitor);
 
                 let bean = await R.findOne("monitor", " id = ? ", [ monitor.id ]);
 
@@ -1191,6 +1202,28 @@ let needSetup = false;
             }
         });
 
+        // PingIsUp: Get plan limits for the UI
+        socket.on("getPlanLimits", async (callback) => {
+            try {
+                checkLogin(socket);
+                const { getPlanLimits } = require("./plan-limits");
+                const limits = getPlanLimits();
+                const monitorCount = await R.count("monitor", " user_id = ? ", [socket.userID]);
+                callback({
+                    ok: true,
+                    data: limits ? {
+                        ...limits,
+                        currentMonitors: monitorCount,
+                    } : null,
+                });
+            } catch (e) {
+                callback({
+                    ok: false,
+                    msg: e.message,
+                });
+            }
+        });
+
         socket.on("setSettings", async (data, currentPassword, callback) => {
             try {
                 checkLogin(socket);
@@ -1215,6 +1248,13 @@ let needSetup = false;
                 const previousNSCDStatus = await Settings.get("nscd");
 
                 await setSettings("general", data);
+
+                // PingIsUp: Override keepDataPeriodDays with plan limit
+                const planLimitsData = require("./plan-limits").getPlanLimits();
+                if (planLimitsData && planLimitsData.historyDays) {
+                    await setSetting("keepDataPeriodDays", planLimitsData.historyDays, "general");
+                }
+
                 server.entryPage = data.entryPage;
 
                 await CacheableDnsHttpAgent.update();
@@ -1646,6 +1686,7 @@ let needSetup = false;
         }
         startMonitors();
         checkVersion.startInterval();
+        logPlanLimits();
 
         if (testMode) {
             startUnitTest();
